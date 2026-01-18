@@ -26,28 +26,17 @@ tipo_codice = st.sidebar.radio("Tipo:", ["QR Code", "Barcode 128"])
 # --- INPUT ---
 col1, col2 = st.columns(2)
 with col1:
-    data_content = st.text_input("Dati nel codice:", "https://google.com")
+    data_content = st.text_input("Dati nel codice:", "123456789")
 with col2:
-    label_text = st.text_input("Testo sotto:", "TESTO ESEMPIO")
+    label_text = st.text_input("Testo sotto:", "PRODOTTO ALPHA")
 
 def generate_asset():
-    # 1. Gestione Dimensioni Canvas
+    # 1. Dimensioni Canvas
     w_base, h_base = formati[formato_scelto]
-    if orientamento == "Orizzontale":
-        canvas_w, canvas_h = max(w_base, h_base), min(w_base, h_base)
-    else:
-        canvas_w, canvas_h = min(w_base, h_base), max(w_base, h_base)
+    canvas_w, canvas_h = (max(w_base, h_base), min(w_base, h_base)) if orientamento == "Orizzontale" else (min(w_base, h_base), max(w_base, h_base))
         
     img_final = Image.new('RGB', (canvas_w, canvas_h), 'white')
-    draw = ImageDraw.Draw(img_final)
     
-    # Parametri dinamici
-    margine = 0.10  # 10% di margine
-    font_size_ratio = 0.05  # 5% della lunghezza del foglio
-    lato_lungo = max(canvas_w, canvas_h)
-    text_size = int(lato_lungo * font_size_ratio)
-    padding_text = text_size // 2 # Spazio tra codice e scritta
-
     try:
         # 2. Generazione Codice
         if tipo_codice == "QR Code":
@@ -55,44 +44,49 @@ def generate_asset():
             qr.add_data(data_content)
             qr.make(fit=True)
             code_img = qr.make_image(fill_color="black", back_color="white").convert('RGB')
-            
-            # Scalatura: deve stare nel 80% della larghezza/altezza (considerando il margine)
-            max_size = int(min(canvas_w, canvas_h) * (1 - margine * 2))
+            # Margine del 10%
+            max_size = int(min(canvas_w, canvas_h) * 0.8) 
             code_img = code_img.resize((max_size, max_size), Image.Resampling.LANCZOS)
-        
-        else:  # Barcode 128
+        else:
             buffer = io.BytesIO()
             code = Code128(data_content, writer=ImageWriter())
             code.write(buffer, options={"write_text": False, "quiet_zone": 1})
             code_img = Image.open(buffer).convert('RGB')
-            
-            # Scalatura: larghezza = 80% del foglio
-            target_w = int(canvas_w * (1 - margine * 2))
+            target_w = int(canvas_w * 0.8)
             ratio = code_img.height / code_img.width
-            target_h = int(target_w * ratio)
-            code_img = code_img.resize((target_w, target_h), Image.Resampling.LANCZOS)
+            code_img = code_img.resize((target_w, int(target_w * ratio)), Image.Resampling.LANCZOS)
 
-        # 3. Calcolo Posizionamento Centrato (Codice + Testo)
         code_w, code_h = code_img.size
-        total_content_h = code_h + padding_text + text_size
+
+        # 3. Creazione del Testo Adattato alla larghezza del codice
+        # Creiamo un'immagine temporanea per il testo
+        temp_font = ImageFont.load_default()
+        # Calcoliamo quanto è lungo il testo con il font di default
+        dummy_img = Image.new('RGB', (1, 1))
+        dummy_draw = ImageDraw.Draw(dummy_img)
+        bbox = dummy_draw.textbbox((0, 0), label_text, font=temp_font)
+        text_w_orig = bbox[2] - bbox[0]
+        text_h_orig = bbox[3] - bbox[1]
+
+        # Creiamo l'immagine del testo e la scaliamo alla larghezza del codice
+        text_canvas = Image.new('RGB', (text_w_orig, text_h_orig), 'white')
+        text_draw = ImageDraw.Draw(text_canvas)
+        text_draw.text((0, 0), label_text, fill="black", font=temp_font)
+        
+        # Scaling del testo: larghezza testo = larghezza codice
+        new_text_w = code_w
+        new_text_h = int(text_h_orig * (new_text_w / text_w_orig))
+        text_img_final = text_canvas.resize((new_text_w, new_text_h), Image.Resampling.LANCZOS)
+
+        # 4. Posizionamento e Centratura
+        padding = int(canvas_h * 0.02) # Piccolo spazio tra codice e testo
+        total_h = code_h + padding + new_text_h
         
         start_x = (canvas_w - code_w) // 2
-        start_y = (canvas_h - total_content_h) // 2
+        start_y = (canvas_h - total_h) // 2
         
-        # Incolla codice
         img_final.paste(code_img, (start_x, start_y))
-        
-        # 4. Scrittura Testo
-        try:
-            # Carichiamo un font se possibile, altrimenti default
-            font = ImageFont.load_default()
-            # Nota: load_default() non accetta 'size'. Per font scalabili servirebbe un .ttf
-            # Ma usiamo una logica di fallback pulita
-        except:
-            font = None
-
-        text_y = start_y + code_h + padding_text
-        draw.text((canvas_w // 2, text_y), label_text, fill="black", font=font, anchor="mt")
+        img_final.paste(text_img_final, (start_x, start_y + code_h + padding))
 
         return img_final
 
@@ -102,11 +96,9 @@ def generate_asset():
 
 # --- OUTPUT ---
 if data_content:
-    with st.spinner('Generazione in corso...'):
-        result = generate_asset()
-        if result:
-            st.image(result, use_container_width=True)
-            
-            buf = io.BytesIO()
-            result.save(buf, format="PNG")
-            st.download_button("Scarica PNG", buf.getvalue(), "codice.png", "image/png")
+    result = generate_asset()
+    if result:
+        st.image(result, use_container_width=True)
+        buf = io.BytesIO()
+        result.save(buf, format="PNG")
+        st.download_button("Scarica PNG", buf.getvalue(), "codice_custom.png", "image/png")
