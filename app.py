@@ -96,7 +96,7 @@ if data:
     try:
         final_svg = generate_qr_svg()
         b64 = base64.b64encode(final_svg.encode('utf-8')).decode("utf-8")
-        st.write(f'<div style="text-align:center; background:#f9f9f9; padding:20px; border-radius:10px;"><img src="data:image/svg+xml;base64,{b64}" style="width:100%; max-width:{formati_mm[scelta][0]*4}px;"/></div>', unsafe_allow_html=True)
+        st.write(f'<div style="text-align:center; background:#d4d4d4; padding:20px; border-radius:10px;"><img src="data:image/svg+xml;base64,{b64}" style="width:100%; max-width:{formati_mm[scelta][0]*4}px;"/></div>', unsafe_allow_html=True)
         
         st.download_button("💾 Scarica SVG Centrato", final_svg, "qr_perfetto.svg", "image/svg+xml")
     except Exception as e:
