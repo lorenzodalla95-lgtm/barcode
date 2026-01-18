@@ -1,104 +1,130 @@
 import streamlit as st
 import qrcode
+import qrcode.image.svg
 from barcode import Code128
-from barcode.writer import ImageWriter
-from PIL import Image, ImageDraw, ImageFont
+from barcode.writer import SVGWriter
 import io
+import base64
 
-st.set_page_config(page_title="Generator QR & Barcode PRO", layout="centered")
+st.set_page_config(page_title="Vettoriale QR & Barcode", layout="centered")
 
-st.title("🔲 Generatore QR & Barcode")
+st.title("📐 Generatore Vettoriale Nitido")
+st.write("QR e Barcode in formato SVG (vettoriale) per la massima qualità di stampa.")
 
-# --- SIDEBAR ---
-st.sidebar.header("Configurazione")
-formati = {
-    "Etichetta Piccola (50x30mm)": (590, 354),
-    "Etichetta Media (100x50mm)": (1181, 590),
-    "A6 (Cartolina)": (1240, 1748),
-    "A5": (1748, 2480),
-    "A4": (2480, 3508),
+# --- CONFIGURAZIONE ---
+formati_mm = {
+    "Etichetta Piccola (50x30mm)": (50, 30),
+    "Etichetta Media (100x50mm)": (100, 50),
+    "A6": (105, 148),
+    "A5": (148, 210),
+    "A4": (210, 297),
 }
 
-formato_scelto = st.sidebar.selectbox("Dimensione:", list(formati.keys()))
+st.sidebar.header("Formato")
+scelta = st.sidebar.selectbox("Dimensione:", list(formati_mm.keys()))
 orientamento = st.sidebar.radio("Orientamento:", ["Verticale", "Orizzontale"])
-tipo_codice = st.sidebar.radio("Tipo:", ["QR Code", "Barcode 128"])
+tipo = st.sidebar.radio("Tipo:", ["QR Code", "Barcode 128"])
 
-# --- INPUT ---
 col1, col2 = st.columns(2)
 with col1:
-    data_content = st.text_input("Dati nel codice:", "123456789")
+    data = st.text_input("Dati Codice:", "123456789")
 with col2:
-    label_text = st.text_input("Testo sotto:", "PRODOTTO ALPHA")
+    label = st.text_input("Testo Etichetta:", "PRODOTTO ESEMPIO")
 
-def generate_asset():
-    # 1. Dimensioni Canvas
-    w_base, h_base = formati[formato_scelto]
-    canvas_w, canvas_h = (max(w_base, h_base), min(w_base, h_base)) if orientamento == "Orizzontale" else (min(w_base, h_base), max(w_base, h_base))
+def get_svg():
+    # Dimensioni in mm
+    w_mm, h_mm = formati_mm[scelta]
+    if orientamento == "Orizzontale":
+        width, height = max(w_mm, h_mm), min(w_mm, h_mm)
+    else:
+        width, height = min(w_mm, h_mm), max(w_mm, h_mm)
+
+    # Margine del 10%
+    margin = min(width, height) * 0.1
+    safe_w = width - (margin * 2)
+    safe_h = height - (margin * 2)
+
+    if tipo == "QR Code":
+        # Generazione QR Vettoriale
+        factory = qrcode.image.svg.SvgPathImage
+        qr = qrcode.QRCode(box_size=10, border=1)
+        qr.add_data(data)
+        qr.make(fit=True)
+        img_svg = qr.make_image(image_factory=factory)
         
-    img_final = Image.new('RGB', (canvas_w, canvas_h), 'white')
-    
-    try:
-        # 2. Generazione Codice
-        if tipo_codice == "QR Code":
-            qr = qrcode.QRCode(box_size=10, border=1)
-            qr.add_data(data_content)
-            qr.make(fit=True)
-            code_img = qr.make_image(fill_color="black", back_color="white").convert('RGB')
-            # Margine del 10%
-            max_size = int(min(canvas_w, canvas_h) * 0.8) 
-            code_img = code_img.resize((max_size, max_size), Image.Resampling.LANCZOS)
-        else:
-            buffer = io.BytesIO()
-            code = Code128(data_content, writer=ImageWriter())
-            code.write(buffer, options={"write_text": False, "quiet_zone": 1})
-            code_img = Image.open(buffer).convert('RGB')
-            target_w = int(canvas_w * 0.8)
-            ratio = code_img.height / code_img.width
-            code_img = code_img.resize((target_w, int(target_w * ratio)), Image.Resampling.LANCZOS)
-
-        code_w, code_h = code_img.size
-
-        # 3. Creazione del Testo Adattato alla larghezza del codice
-        # Creiamo un'immagine temporanea per il testo
-        temp_font = ImageFont.load_default()
-        # Calcoliamo quanto è lungo il testo con il font di default
-        dummy_img = Image.new('RGB', (1, 1))
-        dummy_draw = ImageDraw.Draw(dummy_img)
-        bbox = dummy_draw.textbbox((0, 0), label_text, font=temp_font)
-        text_w_orig = bbox[2] - bbox[0]
-        text_h_orig = bbox[3] - bbox[1]
-
-        # Creiamo l'immagine del testo e la scaliamo alla larghezza del codice
-        text_canvas = Image.new('RGB', (text_w_orig, text_h_orig), 'white')
-        text_draw = ImageDraw.Draw(text_canvas)
-        text_draw.text((0, 0), label_text, fill="black", font=temp_font)
+        # In un SVG, il QR è un percorso. Lo mettiamo in un contenitore centrato.
+        code_size = min(safe_w, safe_h * 0.7) # Lasciamo spazio per il testo
         
-        # Scaling del testo: larghezza testo = larghezza codice
-        new_text_w = code_w
-        new_text_h = int(text_h_orig * (new_text_w / text_w_orig))
-        text_img_final = text_canvas.resize((new_text_w, new_text_h), Image.Resampling.LANCZOS)
-
-        # 4. Posizionamento e Centratura
-        padding = int(canvas_h * 0.02) # Piccolo spazio tra codice e testo
-        total_h = code_h + padding + new_text_h
+        # Costruzione manuale dell'SVG per controllo totale
+        svg_data = img_svg.to_string().decode('utf-8')
+        # Estraiamo solo il contenuto del path per ricostruirlo
+        content = svg_data.split('>', 1)[1].rsplit('<', 1)[0]
         
-        start_x = (canvas_w - code_w) // 2
-        start_y = (canvas_h - total_h) // 2
+        # Calcolo posizioni
+        text_size = code_size * 0.15 # Altezza testo proporzionale al codice
+        total_content_h = code_size + (text_size * 1.2)
         
-        img_final.paste(code_img, (start_x, start_y))
-        img_final.paste(text_img_final, (start_x, start_y + code_h + padding))
+        start_y = (height - total_content_h) / 2
+        
+        svg_final = f"""
+        <svg width="{width}mm" height="{height}mm" viewBox="0 0 {width} {height}" xmlns="http://www.w3.org/2000/svg">
+            <rect width="100%" height="100%" fill="white"/>
+            <g transform="translate({(width-code_size)/2}, {start_y}) scale({code_size/img_svg.width})">
+                {content}
+            </g>
+            <text x="{width/2}" y="{start_y + code_size + text_size}" 
+                font-family="Arial, sans-serif" 
+                font-size="{text_size}" 
+                text-anchor="middle" 
+                fill="black">{label}</text>
+        </svg>
+        """
+    else:
+        # Barcode 128 Vettoriale
+        rv = io.BytesIO()
+        Code128(data, writer=SVGWriter()).write(rv, options={
+            "write_text": False,
+            "margin_top": 0,
+            "margin_bottom": 0,
+            "quiet_zone": 1
+        })
+        svg_raw = rv.getvalue().decode('utf-8')
+        content = svg_raw.split('>', 1)[1].rsplit('<', 1)[0]
 
-        return img_final
+        bar_w = safe_w
+        bar_h = safe_h * 0.4
+        text_size = bar_w * 0.08
+        
+        total_h = bar_h + text_size
+        start_y = (height - total_h) / 2
 
-    except Exception as e:
-        st.error(f"Errore: {e}")
-        return None
+        svg_final = f"""
+        <svg width="{width}mm" height="{height}mm" viewBox="0 0 {width} {height}" xmlns="http://www.w3.org/2000/svg">
+            <rect width="100%" height="100%" fill="white"/>
+            <g transform="translate({(width-bar_w)/2}, {start_y}) scale({bar_w/500}, {bar_h/150})">
+                {content}
+            </g>
+            <text x="{width/2}" y="{start_y + bar_h + text_size}" 
+                font-family="Arial, sans-serif" 
+                font-size="{text_size}" 
+                text-anchor="middle" 
+                fill="black">{label}</text>
+        </svg>
+        """
+    return svg_final
 
-# --- OUTPUT ---
-if data_content:
-    result = generate_asset()
-    if result:
-        st.image(result, use_container_width=True)
-        buf = io.BytesIO()
-        result.save(buf, format="PNG")
-        st.download_button("Scarica PNG", buf.getvalue(), "codice_custom.png", "image/png")
+# --- DISPLAY ---
+if data:
+    svg_res = get_svg()
+    # Rendering dell'SVG in Streamlit
+    b64 = base64.b64encode(svg_res.encode('utf-8')).decode("utf-8")
+    st.write(f'<img src="data:image/svg+xml;base64,{b64}" width="100%"/>', unsafe_allow_html=True)
+
+    st.download_button(
+        label="Scarica Formato Vettoriale (SVG)",
+        data=svg_res,
+        file_name="codice_professionale.svg",
+        mime="image/svg+xml"
+    )
+
+st.info("💡 L'SVG è perfetto per la stampa: puoi ingrandirlo all'infinito senza perdere nitidezza.")
