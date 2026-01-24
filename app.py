@@ -46,23 +46,19 @@ def generate_pdf(row, w, h):
     data_qr = str(row["Dati QR"])
     label_text = str(row["Testo Etichetta"])
     
-    # Per formati custom, passiamo la tupla (w, h) direttamente. 
-    # FPDF capisce l'orientamento dalle proporzioni della tupla.
     pdf = FPDF(unit='mm', format=(w, h))
     pdf.add_page()
     
-    # Calcolo proporzioni font (molto più grande per leggibilità)
+    # Calcolo proporzioni font
     font_size = min(h * 0.18, w * 0.12)
     pdf.set_font("Arial", size=font_size)
     
-    # Scaling testo se troppo lungo
     limit_w = w * 0.9
     tw = pdf.get_string_width(label_text)
     if tw > limit_w:
         font_size *= (limit_w / tw)
         pdf.set_font("Arial", size=font_size)
 
-    # QR Code
     qr_max_h = h - font_size - (h * 0.2)
     code_size = min(w * 0.8, qr_max_h)
     
@@ -71,17 +67,13 @@ def generate_pdf(row, w, h):
     qr.make(fit=True)
     qr_img = qr.make_image(fill_color="black", back_color="white")
     
-    # Centratura blocco
     total_h = code_size + (font_size * 1.1)
     ox = (w - code_size) / 2
     oy = (h - total_h) / 2
     
-    # Render QR
     img_buf = io.BytesIO()
     qr_img.save(img_buf, format='PNG')
     pdf.image(img_buf, x=ox, y=oy, w=code_size, h=code_size)
-    
-    # Render Testo
     pdf.text(x=(w - pdf.get_string_width(label_text))/2, y=oy + code_size + (font_size * 0.9), txt=label_text)
     
     return bytes(pdf.output())
@@ -94,10 +86,8 @@ if not edited_df.empty:
     st.divider()
     st.write(f"**Anteprime (Formato reale: {w_mm}x{h_mm} mm)**")
     
-    # Layout Anteprime
     cols = st.columns(3)
     
-    # Proporzioni anteprima CSS
     preview_w = 180
     preview_h = int(preview_w * (h_mm / w_mm))
 
@@ -114,22 +104,31 @@ if not edited_df.empty:
                     q.save(b, format="PNG")
                     b64 = base64.b64encode(b.getvalue()).decode()
                     
+                    # HTML Anteprima con margin-bottom per distanziare dal tasto
                     st.write(f'''
-                        <div style="background:#D4D4D4; padding:15px; border-radius:10px; display:flex; justify-content:center; align-items:center; min-height:250px;">
-                            <div style="background:white; width:{preview_w}px; height:{preview_h}px; display:flex; flex-direction:column; justify-content:center; align-items:center; border:1px solid #888; box-shadow: 2px 2px 8px rgba(0,0,0,0.1);">
+                        <div style="background:#D4D4D4; padding:20px; border-radius:12px; display:flex; justify-content:center; align-items:center; min-height:260px; margin-bottom: 25px;">
+                            <div style="background:white; width:{preview_w}px; height:{preview_h}px; display:flex; flex-direction:column; justify-content:center; align-items:center; border:1px solid #888; box-shadow: 2px 4px 12px rgba(0,0,0,0.15);">
                                 <img src="data:image/png;base64,{b64}" style="width:40%; height:auto;"/>
-                                <div style="color:black; font-family:sans-serif; font-size:13px; font-weight:bold; margin-top:8px; text-align:center; padding:0 5px;">
+                                <div style="color:black; font-family:sans-serif; font-size:12px; font-weight:bold; margin-top:10px; text-align:center; padding:0 8px; width:100%; word-wrap: break-word;">
                                     {row["Testo Etichetta"]}
                                 </div>
                             </div>
                         </div>
                     ''', unsafe_allow_html=True)
                     
-                    st.download_button(f"📥 PDF {idx+1}", pdf_data, f"etichetta_{idx+1}.pdf", key=f"btn_{idx}", use_container_width=True)
+                    # Tasto download
+                    st.download_button(
+                        label=f"📥 Scarica PDF {idx+1}", 
+                        data=pdf_data, 
+                        file_name=f"etichetta_{idx+1}.pdf", 
+                        key=f"btn_{idx}", 
+                        use_container_width=True
+                    )
+                    st.markdown("<br>", unsafe_allow_html=True) # Spazio ulteriore tra le righe di card
+
             except Exception as e:
                 st.error(f"Errore riga {idx+1}: {e}")
 
-    # Tasto ZIP finale
     if all_pdfs:
         st.divider()
         zip_io = io.BytesIO()
