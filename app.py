@@ -1,15 +1,14 @@
 import streamlit as st
 import qrcode
 import io
-import base64  # <--- Fondamentale per l'anteprima
+import base64
 import pandas as pd
 from fpdf import FPDF
-import zipfile # <--- Per il download multiplo
+import zipfile
 
-st.set_page_config(page_title="QR Batch Generator", layout="wide")
+st.set_page_config(page_title="QR Batch PRO", layout="wide")
 
 st.title("📑 Generatore QR Multiplo Professionale")
-st.write("Compila la tabella e scarica i PDF. L'anteprima è fissata per chiarezza visiva.")
 
 # --- CONFIGURAZIONE ---
 formati_mm = {
@@ -23,30 +22,47 @@ formati_mm = {
 with st.sidebar:
     st.header("Configurazione Stampa")
     scelta = st.selectbox("Dimensione Etichetta:", list(formati_mm.keys()))
-    orientamento = st.sidebar.radio("Orientamento:", ["Verticale", "Orizzontale"])
+    orientamento = st.radio("Orientamento:", ["Verticale", "Orizzontale"])
     st.divider()
-    st.info("I PDF verranno creati con le dimensioni reali in mm.")
+    st.info("Il testo viene scalato automaticamente per la massima leggibilità.")
 
 # --- INPUT TABELLA ---
+st.subheader("1. Inserisci i dati")
 df_default = pd.DataFrame([
     {"Dati QR": "https://google.com", "Testo Etichetta": "ESEMPIO A"},
-    {"Dati QR": "https://streamlit.io", "Testo Etichetta": "ESEMPIO B"},
+    {"Dati QR": "12345", "Testo Etichetta": "CODICE 01"},
 ])
-
 edited_df = st.data_editor(df_default, num_rows="dynamic", use_container_width=True)
 
-# --- LOGICA PDF ---
+# --- FUNZIONE LOGICA CORE ---
+def get_dimensions():
+    w_base, h_base = formati_mm[scelta]
+    if orientamento == "Orizzontale":
+        return max(w_base, h_base), min(w_base, h_base)
+    return min(w_base, h_base), max(w_base, h_base)
+
 def generate_pdf(row, w, h):
     data_qr = str(row["Dati QR"])
     label_text = str(row["Testo Etichetta"])
     
-    orient = 'L' if orientamento == "Orizzontale" else 'P'
-    pdf = FPDF(orientation=orient, unit='mm', format=(w, h))
+    pdf = FPDF(orientation='L' if w > h else 'P', unit='mm', format=(w, h))
     pdf.add_page()
     
-    # Margini e proporzioni
-    margin = w * 0.1
-    code_size = min(w - (margin*2), (h - (margin*2)) * 0.7)
+    # Proporzioni dinamiche: il testo deve essere leggibile
+    # Impostiamo il font al 15% dell'altezza o proporzionato alla larghezza
+    font_size = min(h * 0.15, w * 0.08) 
+    
+    # Scaling per testi lunghi
+    text_width_limit = w * 0.9
+    pdf.set_font("Arial", size=font_size)
+    actual_text_w = pdf.get_string_width(label_text)
+    if actual_text_w > text_width_limit:
+        font_size *= (text_width_limit / actual_text_w)
+        pdf.set_font("Arial", size=font_size)
+
+    # Il QR occupa lo spazio rimanente (margine 10%)
+    qr_max_h = h - font_size - (h * 0.2) # spazio per margini e testo
+    code_size = min(w * 0.8, qr_max_h)
     
     # Generazione QR
     qr = qrcode.QRCode(box_size=10, border=0)
@@ -54,72 +70,67 @@ def generate_pdf(row, w, h):
     qr.make(fit=True)
     qr_img = qr.make_image(fill_color="black", back_color="white")
     
-    # Font scaling
-    font_size = code_size * 0.12
-    if (font_size * 0.55 * len(label_text)) > code_size:
-        font_size = font_size * (code_size / (font_size * 0.55 * len(label_text)))
-
-    # Posizionamento
-    ox = (w - code_size) / 2
-    oy = (h - (code_size + font_size * 1.5)) / 2
+    # Centratura verticale del blocco
+    total_content_h = code_size + (font_size * 1.2)
+    offset_x = (w - code_size) / 2
+    offset_y = (h - total_content_h) / 2
     
+    # Inserimento Immagine
     img_buf = io.BytesIO()
     qr_img.save(img_buf, format='PNG')
-    img_buf.seek(0)
-    pdf.image(img_buf, x=ox, y=oy, w=code_size, h=code_size)
+    pdf.image(img_buf, x=offset_x, y=offset_y, w=code_size, h=code_size)
     
-    pdf.set_font("Arial", size=font_size)
-    pdf.text(x=(w - pdf.get_string_width(label_text)) / 2, y=oy + code_size + (font_size * 1.1), txt=label_text)
+    # Inserimento Testo
+    pdf.text(x=(w - pdf.get_string_width(label_text)) / 2, y=offset_y + code_size + (font_size * 1), txt=label_text)
     
     return bytes(pdf.output())
 
 # --- GENERAZIONE E VISUALIZZAZIONE ---
 if not edited_df.empty:
-    w_base, h_base = formati_mm[scelta]
-    w_real, h_real = (max(w_base, h_base), min(w_base, h_base)) if orientamento == "Orizzontale" else (min(w_base, h_base), max(w_base, h_base))
-
-    # Creiamo una lista per lo ZIP
+    w_real, h_real = get_dimensions()
     all_pdfs = []
 
     st.divider()
-    cols = st.columns(4)
+    st.subheader("2. Anteprime e Download")
+    
+    # Calcolo proporzione per anteprima visiva (CSS)
+    ratio = h_real / w_real
+    preview_w = 200 # larghezza fissa in pixel per l'anteprima
+    preview_h = int(preview_w * ratio)
+
+    cols = st.columns(3)
 
     for index, row in edited_df.iterrows():
         if row["Dati QR"]:
             pdf_bytes = generate_pdf(row, w_real, h_real)
-            all_pdfs.append((f"etichetta_{index+1}.pdf", pdf_bytes))
+            all_pdfs.append((f"qr_{index+1}.pdf", pdf_bytes))
             
-            with cols[index % 4]:
-                # Anteprima fissa con sfondo #D4D4D4
-                qr_prev = qrcode.make(row["Dati QR"], border=0)
+            with cols[index % 3]:
+                # Generazione immagine QR per anteprima
+                qr_p = qrcode.make(row["Dati QR"], border=0)
                 p_buf = io.BytesIO()
-                qr_prev.save(p_buf, format="PNG")
+                qr_p.save(p_buf, format="PNG")
                 img_b64 = base64.b64encode(p_buf.getvalue()).decode()
                 
+                # HTML Anteprima Dinamica
                 st.write(f'''
-                    <div style="background:#D4D4D4; padding:15px; border-radius:10px; text-align:center; margin-bottom:10px;">
-                        <div style="background:white; padding:10px; display:inline-block; border-radius:5px;">
-                            <img src="data:image/png;base64,{img_b64}" width="80"/>
-                            <div style="color:black; font-size:10px; font-family:sans-serif; margin-top:5px; max-width:100px; overflow:hidden;">{row["Testo Etichetta"]}</div>
+                    <div style="background:#D4D4D4; padding:20px; border-radius:10px; display:flex; justify-content:center; align-items:center;">
+                        <div style="background:white; width:{preview_w}px; height:{preview_h}px; display:flex; flex-direction:column; justify-content:center; align-items:center; border:1px solid #999; box-shadow: 2px 2px 10px rgba(0,0,0,0.1);">
+                            <img src="data:image/png;base64,{img_b64}" style="width:50%; height:auto;"/>
+                            <div style="color:black; font-size:14px; font-weight:bold; font-family:sans-serif; margin-top:10px; text-align:center; padding:0 5px; width:100%; word-wrap: break-word;">
+                                {row["Testo Etichetta"]}
+                            </div>
                         </div>
                     </div>
                 ''', unsafe_allow_html=True)
                 
-                st.download_button(f"📄 PDF {index+1}", pdf_bytes, f"qr_{index+1}.pdf", "application/pdf", key=f"btn_{index}", use_container_width=True)
+                st.download_button(f"📄 Scarica PDF {index+1}", pdf_bytes, f"qr_{index+1}.pdf", key=f"b_{index}", use_container_width=True)
 
-    # --- TASTO ZIP CUMULATIVO ---
     if all_pdfs:
         st.divider()
         zip_buf = io.BytesIO()
-        with zipfile.ZipFile(zip_buf, "w") as zip_file:
+        with zipfile.ZipFile(zip_buf, "w") as z:
             for name, data in all_pdfs:
-                zip_file.writestr(name, data)
+                z.writestr(name, data)
         
-        st.download_button(
-            label="📦 SCARICA TUTTE LE ETICHETTE (ZIP)",
-            data=zip_buf.getvalue(),
-            file_name="etichette_qr.zip",
-            mime="application/zip",
-            use_container_width=True,
-            type="primary"
-        )
+        st.download_button("📦 SCARICA TUTTI (ZIP)", zip_buf.getvalue(), "etichette.zip", "application/zip", use_container_width=True, type="primary")
