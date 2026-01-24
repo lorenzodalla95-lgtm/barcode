@@ -26,9 +26,6 @@ with st.sidebar:
     st.header("Regolazione Layout")
     # Selettore per la dimensione del QR
     qr_scale = st.slider("Dimensione QR (% area)", 30, 90, 70, help="Aumenta per un QR più grande, diminuisci per dare più spazio al testo.")
-    
-    st.divider()
-    st.info("Sfondo anteprima: #D4D4D4. Solo export PDF professionale.")
 
 # --- 2. LOGICA DIMENSIONI ---
 def get_final_dims():
