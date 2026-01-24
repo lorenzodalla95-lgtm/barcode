@@ -12,8 +12,6 @@ st.title("📑 QR PRO: Generazione Multipla Personalizzata")
 
 # --- 1. CONFIGURAZIONE DIMENSIONI ---
 formati_mm = {
-    "Etichetta Piccola (50x30mm)": (50, 30),
-    "Etichetta Media (100x50mm)": (100, 50),
     "A6": (105, 148),
     "A5": (148, 210),
     "A4": (210, 297),
